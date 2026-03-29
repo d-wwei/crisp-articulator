@@ -238,10 +238,25 @@ This stage is handled by the orchestrator directly. No sub-skill invocation.
 
 **Actions:**
 
-1. Copy HTML content to clipboard:
+1. Copy rendered rich text to clipboard (NOT raw HTML source):
+
+On macOS, use `NSPasteboard` to set clipboard content as `public.html` type. This allows rich text editors (WeChat, Zhihu, etc.) to receive rendered content instead of raw source code.
+
 ```bash
-cat "{HTML_PATH}" | pbcopy
+/usr/bin/python3 -c "
+import AppKit
+with open('{HTML_PATH}', 'r') as f:
+    html = f.read()
+pb = AppKit.NSPasteboard.generalPasteboard()
+pb.clearContents()
+pb.setData_forType_(html.encode('utf-8'), 'public.html')
+print('Rich text copied to clipboard')
+"
 ```
+
+**Why not `cat | pbcopy`?** `pbcopy` copies as plain text (`public.utf8-plain-text`). When pasted into a rich text editor, it shows raw HTML tags instead of rendered content. Using `public.html` clipboard type tells the editor to interpret and render the HTML.
+
+**Fallback** (if Python/AppKit unavailable): Open the HTML in a browser, then tell the user to Cmd+A → Cmd+C from the browser preview.
 
 2. Open HTML in default browser for preview:
 ```bash
@@ -261,19 +276,19 @@ Pipeline complete!
   Words:    ~{word_count}
   Images:   {image_count}
 
-  HTML copied to clipboard.
+  Rich text copied to clipboard — paste directly into editor.
   Preview opened in browser.
 
   Next: {platform_hint}
 ```
 
 Adjust the "Next" hint per platform:
-- wechat: "Paste into WeChat Official Account editor."
-- zhihu: "Paste into Zhihu article editor."
-- juejin: "Paste into Juejin editor."
-- medium: "Paste into Medium editor."
-- linkedin: "Paste into LinkedIn article editor."
-- x: "Paste into X Articles editor."
+- wechat: "Cmd+V to paste into WeChat Official Account editor. Images need manual upload from the images/ directory."
+- zhihu: "Cmd+V to paste into Zhihu article editor."
+- juejin: "Cmd+V to paste into Juejin editor."
+- medium: "Cmd+V to paste into Medium editor."
+- linkedin: "Cmd+V to paste into LinkedIn article editor."
+- x: "Cmd+V to paste into X Articles editor."
 - blog: "Deploy the HTML file to your blog."
 
 ---

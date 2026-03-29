@@ -2,9 +2,10 @@
 name: articulate
 description: >
   Content creation pipeline orchestrator for any AI agent. Chains great-writer ->
-  brilliant-visualizer -> typeset into a complete write-illustrate-format-deliver flow.
-  Loose coupling: depends only on skill names and I/O contracts, not sub-skill internals.
-  Works with Claude Code, Codex, Gemini CLI, and any agent that supports skill loading.
+  brilliant-visualizer -> typeset -> deliver -> publish into a complete write-to-publish flow.
+  Optional WeChat publishing via wechat-cli (--publish). Loose coupling: depends only on
+  skill names and I/O contracts, not sub-skill internals. Works with Claude Code, Codex,
+  Gemini CLI, and any agent that supports skill loading.
 triggers:
   # Chinese
   - 一键发文
@@ -26,10 +27,12 @@ triggers:
 Orchestrator for the content creation flow. Chains sub-skills, does not do content work itself.
 
 ```
-write (great-writer) -> illustrate (brilliant-visualizer) -> format (typeset) -> deliver (built-in)
+write (great-writer) -> illustrate (brilliant-visualizer) -> format (typeset) -> deliver (built-in) -> [publish (wechat-cli)]
 ```
 
-**Loose coupling contract:** This skill knows sub-skill names and their I/O types (file paths). It does NOT read or depend on any sub-skill's internal files, modes, phases, engines, or themes.
+Brackets indicate optional/conditional stages. The Publish stage requires `--publish` flag AND `--platform wechat`.
+
+**Loose coupling contract:** This skill knows sub-skill names and their I/O types (file paths). It does NOT read or depend on any sub-skill's internal files, modes, phases, engines, or themes. For external CLI tools (like wechat-cli), the same contract applies: the orchestrator knows command names and I/O, not internal implementation.
 
 ---
 
@@ -63,6 +66,24 @@ echo "AVAILABLE:$_AVAILABLE"
 echo "MISSING:$_MISSING"
 ```
 
+Then check for external CLI tools (used by optional pipeline stages):
+
+```bash
+# External tool check (for publish stage)
+if command -v wechat-cli >/dev/null 2>&1; then
+  echo "OK: wechat-cli"
+  _AVAILABLE="$_AVAILABLE wechat-cli"
+  if [ -f "$HOME/.config/wechat-cli/config" ]; then
+    echo "  config: ready"
+  else
+    echo "  config: MISSING (run: wechat-cli init)"
+  fi
+else
+  echo "MISSING: wechat-cli (optional — needed for --publish)"
+  _MISSING="$_MISSING wechat-cli"
+fi
+```
+
 **Interpret the results:**
 
 - If `MISSING` contains `typeset`: STOP. Tell the user:
@@ -72,6 +93,10 @@ echo "MISSING:$_MISSING"
 - If `MISSING` contains `great-writer` or `brilliant-visualizer`: warn the user which skills are missing and that the corresponding pipeline stages will be skipped. Offer to install them. Continue with available stages.
 
 - If all three are present: proceed normally.
+
+- If `MISSING` contains `wechat-cli` AND `--publish` was requested: warn: "wechat-cli not installed. Publish stage will be skipped. Pipeline ends at Deliver." Continue without the Publish stage.
+
+- If `wechat-cli` is present but config is missing: warn: "wechat-cli found but not configured. Run `wechat-cli init` and fill in your AppID/AppSecret before using --publish."
 
 ---
 
@@ -86,7 +111,7 @@ Parse the user's `/articulate` invocation to determine:
 ### Command syntax
 
 ```
-/articulate <topic_or_file> [--from write|visualize|typeset|deliver] [--auto] [--platform wechat|zhihu|juejin|medium|linkedin|x|blog] [--theme default|elegant|tech|minimal|vibrant] [--check-deps]
+/articulate <topic_or_file> [--from write|visualize|typeset|deliver|publish] [--auto] [--platform wechat|zhihu|juejin|medium|linkedin|x|blog] [--theme default|elegant|tech|minimal|vibrant] [--publish] [--title T] [--author A] [--digest D] [--thumb F] [--check-deps]
 ```
 
 ### Argument extraction
@@ -100,6 +125,11 @@ From the user's input, extract these parameters:
 | `AUTO_MODE` | Presence of `--auto` | false |
 | `PLATFORM` | `--platform` flag value | wechat |
 | `THEME` | `--theme` flag value | default |
+| `PUBLISH` | Presence of `--publish` | false |
+| `TITLE` | `--title` flag value | (auto-extract from HTML/Markdown) |
+| `AUTHOR` | `--author` flag value | (empty) |
+| `DIGEST` | `--digest` flag value | (auto-extract from first paragraph) |
+| `THUMB_FILE` | `--thumb` flag value | (none) |
 
 If `--platform` is not specified, ask the user: "Target platform? (wechat / zhihu / juejin / medium / linkedin / x / blog, default: wechat)"
 
@@ -124,6 +154,11 @@ If `--from` is specified, use that stage directly. Otherwise, auto-detect:
 
 **Rule 4: Input is a `.md` file path but file doesn't exist**
 - Treat as topic text. Start at **Write**.
+
+**Rule 5: `--from publish` specified**
+- Input must be an existing `.html` file. Set `HTML_PATH = TOPIC_OR_FILE`.
+- If input is not a valid `.html` file, show error: "Publish stage requires an HTML file path as input."
+- Implies `--publish` (no need to set both).
 
 After detection, announce: "Starting pipeline from [stage name]. Remaining stages: [list]."
 
@@ -283,13 +318,115 @@ Pipeline complete!
 ```
 
 Adjust the "Next" hint per platform:
-- wechat: "Cmd+V to paste into WeChat Official Account editor. Images need manual upload from the images/ directory."
+- wechat (without `--publish`): "Cmd+V to paste into WeChat Official Account editor. Or re-run with --publish to publish directly via API."
+- wechat (with `--publish`): "Continuing to publish stage..."
 - zhihu: "Cmd+V to paste into Zhihu article editor."
 - juejin: "Cmd+V to paste into Juejin editor."
 - medium: "Cmd+V to paste into Medium editor."
 - linkedin: "Cmd+V to paste into LinkedIn article editor."
 - x: "Cmd+V to paste into X Articles editor."
 - blog: "Deploy the HTML file to your blog."
+
+---
+
+### Stage: Publish (Post-Deliver)
+
+**Tool:** `wechat-cli` (bash CLI, invoked via Bash tool — not via Skill tool)
+**Input:** HTML file path (`HTML_PATH`) + metadata (`TITLE`, `AUTHOR`, `DIGEST`, `THUMB_FILE`)
+**Output:** media_id, publish_id (printed to console, not file artifacts)
+
+**Skip conditions (check in order):**
+- `PUBLISH` is false (no `--publish` flag): skip entirely. Pipeline ends at Deliver.
+- `PLATFORM` is not `wechat`: skip. Print: "Publish stage currently supports wechat only. Skipping."
+- `wechat-cli` is not installed (from Step 0): skip. Print: "wechat-cli not found. Install it to enable direct WeChat publishing."
+- `wechat-cli` config is missing: skip. Print: "wechat-cli not configured. Run `wechat-cli init` first."
+
+If all skip conditions pass, proceed with publishing.
+
+**Mid-pipeline entry:** If `--from publish`, set `HTML_PATH = TOPIC_OR_FILE`. Validate it is an existing `.html` file.
+
+**Sub-step 1: Extract metadata (if not provided via flags)**
+
+- `TITLE`: If `--title` not given, extract from the first `<h1>` tag in the HTML. If no `<h1>`, extract from the Markdown source's first `# ` heading (using `ILLUSTRATED_MD_PATH` if available). If neither found, ask the user: "Article title for WeChat draft?"
+- `DIGEST`: If `--digest` not given, extract the text content of the first `<p>` tag in the HTML, truncated to 120 characters. If not found, leave empty.
+- `AUTHOR`: If `--author` not given, leave empty (WeChat allows this).
+
+**Sub-step 2: Pre-publish check**
+
+```bash
+wechat-cli check "{HTML_PATH}"
+```
+
+- If check returns errors (exit code 1): show the output. Ask: "Fix issues and retry / Skip publish / Abort?"
+- If check returns warnings only (exit code 0): show warnings and continue.
+
+**Sub-step 3: Upload local images to WeChat CDN**
+
+```bash
+wechat-cli upload-images "{HTML_PATH}"
+```
+
+This modifies `HTML_PATH` in-place, replacing local image `src` attributes with WeChat CDN URLs. After this step, the HTML is WeChat-ready.
+
+**Sub-step 4: Upload cover image (if provided)**
+
+If `THUMB_FILE` is set:
+```bash
+THUMB_ID=$(wechat-cli upload-thumb "{THUMB_FILE}")
+```
+
+If `THUMB_FILE` is not set, `THUMB_ID` is empty. The draft will have no cover image.
+
+**Confirmation gate (MANDATORY — not skipped by `--auto`):**
+
+Publishing sends content to WeChat's API and is irreversible. This gate always fires.
+
+```
+Ready to publish to WeChat Official Account:
+
+  Title:   {TITLE}
+  Author:  {AUTHOR or "(empty)"}
+  Digest:  {DIGEST or "(auto-generated)"} (first 120 chars)
+  Cover:   {THUMB_FILE or "none"}
+  HTML:    {HTML_PATH}
+  Images:  {count} uploaded to CDN
+
+  Publish now? (Y: publish / n: cancel / edit: edit title/author/digest)
+```
+
+- **Y**: proceed to create draft and publish.
+- **n**: print "Publish cancelled. HTML is ready at {HTML_PATH}." and stop.
+- **edit**: allow user to change title, author, or digest, then re-show the gate.
+
+**Sub-step 5: Create draft**
+
+```bash
+MEDIA_ID=$(wechat-cli draft --title "{TITLE}" --html "{HTML_PATH}" --thumb "{THUMB_ID}" --author "{AUTHOR}" --digest "{DIGEST}")
+```
+
+Note the `MEDIA_ID` output. If this fails, show the WeChat API error (wechat-cli translates error codes to Chinese) and ask: "Retry / Abort?" The draft can be retried safely.
+
+**Sub-step 6: Publish draft**
+
+```bash
+PUBLISH_ID=$(wechat-cli publish "{MEDIA_ID}")
+```
+
+If this fails, show the error and the `MEDIA_ID` so the user can retry manually: `wechat-cli publish {MEDIA_ID}`.
+
+**After completion:** Print publish summary:
+
+```
+Published to WeChat!
+
+  Title:      {TITLE}
+  Media ID:   {MEDIA_ID}
+  Publish ID: {PUBLISH_ID}
+  Status:     Submitted (WeChat review may take a few minutes)
+
+  Check status: wechat-cli status {PUBLISH_ID}
+  Article will be visible to followers after approval.
+```
 
 ---
 
@@ -303,8 +440,14 @@ Adjust the "Next" hint per platform:
 | `AUTO_MODE` + any error | Abort the entire pipeline. Print error summary with the last successful stage and its artifact. |
 | Missing optional sub-skill at runtime | Skip that stage. Warn: "{skill} not installed, skipping {stage} stage." Continue to next. |
 | Missing `typeset` at runtime | Abort: "typeset is required. Install it at ~/.claude/skills/typeset/ first." |
-| Invalid `--from` value | Show valid options: write, visualize, typeset, deliver. Ask user to correct. |
+| Invalid `--from` value | Show valid options: write, visualize, typeset, deliver, publish. Ask user to correct. |
 | Invalid `--platform` value | Show valid options: wechat, zhihu, juejin, medium, linkedin, x, blog. Ask user to correct. |
+| `wechat-cli check` fails (errors) | Show check output. Ask: "Fix and retry / Skip publish / Abort?" |
+| `wechat-cli upload-images` fails | Show error. Ask: "Retry / Skip publish / Abort?" |
+| `wechat-cli draft` fails | Show WeChat API error (wechat-cli translates error codes). Ask: "Retry / Abort?" |
+| `wechat-cli publish` fails | Show error + media_id for manual retry. Ask: "Retry / Abort?" |
+| `--publish` but platform is not wechat | Warn: "Publish stage only supports wechat. Skipping." End at Deliver. |
+| `--publish` but wechat-cli missing or unconfigured | Warn and skip. End at Deliver. |
 
 ---
 
@@ -327,13 +470,21 @@ When a skill is registered here in a future version, the pipeline becomes:
 
 Position: After the Deliver stage.
 Purpose: Direct platform publishing, cross-posting, scheduling.
-v1 status: Empty. No skill registered.
+Status: **Active.** `wechat-cli` registered for WeChat platform (`--publish` + `--platform wechat`).
 
-When a skill is registered here in a future version, the pipeline becomes:
+Current pipeline:
 ```
-write -> illustrate -> format -> deliver -> [platform-publisher]
+write -> illustrate -> format -> deliver -> [publish (wechat-cli)]
 ```
 
-### How to extend (for future reference)
+Future: additional platform CLIs (e.g., zhihu-cli) can be registered to the same slot with their own platform gates.
 
-To register a skill to an extension slot, add a new stage entry in the pipeline section above with the appropriate position. Existing stages do not need modification.
+### How to extend
+
+To register a new tool to an extension slot:
+1. Add a stage entry in the pipeline section above with the appropriate position.
+2. Add a dependency check in Step 0 (use `command -v` for CLI tools, file check for skills).
+3. Add skip conditions at the top of the new stage.
+4. Existing stages do not need modification.
+
+The Publish stage (wechat-cli) demonstrates this pattern: an external CLI tool registered to the Post-Deliver slot, with platform-gated activation and a mandatory confirmation gate.

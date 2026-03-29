@@ -2,117 +2,126 @@
 
 [中文文档](README_ZH.md)
 
-A skill for AI agents that orchestrates the full content creation pipeline: write, illustrate, format, and deliver. One command, four stages, ready-to-publish output. Works with any agent that supports skill loading (Claude Code, Codex, Gemini CLI, etc.).
-
-## What it does
-
-You give it a topic. It calls [great-writer](https://github.com/d-wwei/great-writer) to write the article, [brilliant-visualizer](https://github.com/d-wwei/brilliant-visualizer) to add diagrams and images, and [typeset](https://github.com/d-wwei/excellent-typesetter) to format everything for your target platform. The final HTML lands in your clipboard, and a browser preview opens automatically.
-
-Each sub-skill runs independently. Crisp Articulator only knows their names and what file paths they produce. When a sub-skill gets updated, nothing here needs to change.
+One command turns a topic into a published article. Crisp Articulator orchestrates the full content pipeline — writing, illustration, typesetting, delivery, and optional WeChat publishing — across independent sub-skills. Works with Claude Code, Codex, Gemini CLI, or any agent that supports skill loading.
 
 ## Quick Start
 
 ```bash
 # Install: symlink into your agent's skill directory
-# Claude Code:  ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
-# Codex:        ln -s /path/to/crisp-articulator ~/.agents/skills/crisp-articulator
-# Gemini CLI:   ln -s /path/to/crisp-articulator ~/.gemini/skills/crisp-articulator
-ln -s /path/to/crisp-articulator <your-agent-skill-dir>/crisp-articulator
+ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
 
-# Full pipeline: topic → article → illustrations → formatted HTML
+# Full pipeline: topic → write → illustrate → typeset → deliver
 /articulate "Write a technical blog about AI Agent security" --platform wechat
 
-# Already have a markdown draft? Start from illustration
+# Full pipeline + publish directly to WeChat Official Account
+/articulate "AI Agent 安全" --platform wechat --publish --thumb cover.png
+
+# Start from an existing draft
 /articulate my-article.md --platform zhihu
 
-# Skip straight to formatting
+# Skip to formatting
 /articulate my-article.md --from typeset --platform medium --theme elegant
 
-# No confirmations, just run everything
-/articulate --auto "AI Agent 入门指南" --platform wechat
+# Full auto mode (publish gate still requires confirmation)
+/articulate --auto "AI Agent 入门指南" --platform wechat --publish
+
+# Publish an existing HTML file directly
+/articulate article.html --from publish --title "我的文章"
 ```
 
 ## Pipeline
 
 ```
-topic text ──→ Write ──→ Visualize ──→ Typeset ──→ Deliver
-               │          │             │            │
-          great-writer  brilliant-   typeset     clipboard
-                        visualizer               + preview
+topic ──→ Write ──→ Visualize ──→ Typeset ──→ Deliver ──→ [Publish]
+            │          │             │           │             │
+       great-writer  brilliant-   typeset    clipboard    wechat-cli
+                     visualizer              + preview    (optional)
 ```
 
-| Stage | Skill | Input | Output |
-|-------|-------|-------|--------|
-| Write | great-writer | Topic text | Markdown file |
-| Visualize | brilliant-visualizer | Markdown file | Markdown file with images |
-| Typeset | typeset | Markdown file + platform | Platform-specific HTML |
+| Stage | Skill / Tool | Input | Output |
+|-------|-------------|-------|--------|
+| Write | [great-writer](https://github.com/d-wwei/great-writer) | Topic text | Markdown file |
+| Visualize | [brilliant-visualizer](https://github.com/d-wwei/brilliant-visualizer) | Markdown file | Markdown with images |
+| Typeset | [typeset](https://github.com/d-wwei/excellent-typesetter) | Markdown + platform | Platform-specific HTML |
 | Deliver | (built-in) | HTML file | Clipboard + browser preview |
+| Publish | [wechat-cli](https://github.com/d-wwei/wechat-cli) | HTML + metadata | Published article |
 
-Between each stage, you get a checkpoint to review, edit, or stop. Pass `--auto` to skip all checkpoints.
+Each stage has a review checkpoint. Pass `--auto` to skip them all — except Publish, which always confirms before sending (publishing is irreversible).
 
 ## Smart Entry Point
 
-You don't always start from scratch. The orchestrator detects what you have and picks the right starting stage:
+The orchestrator detects what you have and starts at the right stage:
 
-| You provide | Detected start |
-|-------------|---------------|
+| Input | Starts at |
+|-------|----------|
 | Topic text | Write (full pipeline) |
-| `.md` file, no images | Visualize |
-| `.md` file with images | Typeset |
-| `.html` file | Deliver (preview only) |
+| `.md` file without images | Visualize |
+| `.md` file with images on disk | Typeset |
+| `.html` file | Deliver |
 
-Override with `--from write|visualize|typeset|deliver`.
+Override with `--from write|visualize|typeset|deliver|publish`.
 
 ## Parameters
 
-| Flag | Options | Default |
-|------|---------|---------|
+| Flag | Values | Default |
+|------|--------|---------|
 | `--platform` | wechat, zhihu, juejin, medium, linkedin, x, blog | wechat |
 | `--theme` | default, elegant, tech, minimal, vibrant | default |
-| `--from` | write, visualize, typeset, deliver | auto-detect |
+| `--from` | write, visualize, typeset, deliver, publish | auto-detect |
 | `--auto` | *(flag)* | off |
-| `--check-deps` | *(flag)* | - |
+| `--publish` | *(flag)* enable WeChat publish stage | off |
+| `--title` | Article title for WeChat draft | auto-extract from `<h1>` |
+| `--author` | Author name | empty |
+| `--digest` | Summary (max 120 chars) | auto-extract from first paragraph |
+| `--thumb` | Cover image file path | none |
+| `--check-deps` | *(flag)* check dependencies and exit | - |
 
 ## Dependencies
 
-| Skill | Required | Without it |
-|-------|----------|-----------|
-| [typeset](https://github.com/d-wwei/excellent-typesetter) | Yes | Cannot run |
+| Skill / Tool | Required | Without it |
+|-------------|----------|-----------|
+| [typeset](https://github.com/d-wwei/excellent-typesetter) | **Yes** | Cannot run |
 | [great-writer](https://github.com/d-wwei/great-writer) | No | Write stage skipped |
 | [brilliant-visualizer](https://github.com/d-wwei/brilliant-visualizer) | No | Visualize stage skipped |
+| [wechat-cli](https://github.com/d-wwei/wechat-cli) | No | Publish stage skipped |
 
-Run `/articulate --check-deps` to verify all sub-skills are installed.
-
-### Install sub-skills
+### Install
 
 ```bash
 # Required
 ln -s /path/to/excellent-typesetter ~/.claude/skills/typeset
 
-# Optional
+# Optional sub-skills
 ln -s /path/to/great-writer ~/.claude/skills/great-writer
 ln -s /path/to/brilliant-visualizer ~/.claude/skills/brilliant-visualizer
+
+# Optional CLI tool (for --publish)
+ln -s /path/to/wechat-cli ~/.local/bin/wechat-cli
+wechat-cli init   # then fill in AppID and AppSecret
 ```
 
-## Architecture: Loose Coupling
+Run `/articulate --check-deps` to verify everything is in place.
 
-The orchestrator depends on exactly three things per sub-skill:
-1. **Skill name** (to invoke it)
-2. **Input type** (topic text or file path)
-3. **Output type** (file path)
+## Architecture
 
-It does not read, reference, or depend on any sub-skill's internal files, configuration, modes, phases, or engines. Sub-skills can be refactored, extended, or rewritten without touching the orchestrator.
+### Loose Coupling
 
-## Extension Slots
+The orchestrator knows exactly three things per sub-skill or tool:
 
-Two extension points are reserved for future versions:
+1. **Name** — skill name or CLI command
+2. **Input** — topic text or file path
+3. **Output** — file path or ID
 
-| Slot | Position | Purpose |
-|------|----------|---------|
-| Pre-Write | Before Write stage | Topic selection, content strategy |
-| Post-Deliver | After Deliver stage | Platform publishing, cross-posting |
+Nothing else. No internal phases, no engine configs, no API endpoints, no theme logic. Sub-skills are invoked via the agent's Skill tool; CLI tools (wechat-cli) via Bash. Different mechanism, same contract. Any component can be refactored or replaced independently.
 
-These are documented placeholders. No skill is registered to them in v1.
+### Extension Slots
+
+| Slot | Position | Status | Purpose |
+|------|----------|--------|---------|
+| Pre-Write | Before Write | Planned | Topic selection, content strategy |
+| Post-Deliver | After Deliver | **Active** | Platform publishing |
+
+The Publish stage (wechat-cli) occupies the Post-Deliver slot. Additional platform CLIs can register to the same slot with their own platform gates.
 
 ## License
 

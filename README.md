@@ -2,7 +2,7 @@
 
 [中文文档](README_ZH.md)
 
-A Claude Code skill that orchestrates the full content creation pipeline: write, illustrate, format, and deliver. One command, four stages, ready-to-publish output.
+A skill for AI agents that orchestrates the full content creation pipeline: write, illustrate, format, and deliver. One command, four stages, ready-to-publish output. Works with any agent that supports skill loading (Claude Code, Codex, Gemini CLI, etc.).
 
 ## What it does
 
@@ -13,8 +13,11 @@ Each sub-skill runs independently. Crisp Articulator only knows their names and 
 ## Quick Start
 
 ```bash
-# Install: symlink into your Claude Code skills directory
-ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
+# Install: symlink into your agent's skill directory
+# Claude Code:  ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
+# Codex:        ln -s /path/to/crisp-articulator ~/.agents/skills/crisp-articulator
+# Gemini CLI:   ln -s /path/to/crisp-articulator ~/.gemini/skills/crisp-articulator
+ln -s /path/to/crisp-articulator <your-agent-skill-dir>/crisp-articulator
 
 # Full pipeline: topic → article → illustrations → formatted HTML
 /articulate "Write a technical blog about AI Agent security" --platform wechat

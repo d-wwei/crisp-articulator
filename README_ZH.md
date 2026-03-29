@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-一个 Claude Code skill，串联写作、配图、排版三个环节，一条命令完成从主题到可发布 HTML 的全流程。
+适用于任何 AI Agent 的 skill，串联写作、配图、排版三个环节，一条命令完成从主题到可发布 HTML 的全流程。支持 Claude Code、Codex、Gemini CLI 等所有支持 skill 加载的 agent。
 
 ## 做什么用
 
@@ -13,8 +13,11 @@
 ## 快速开始
 
 ```bash
-# 安装：软链接到 Claude Code skills 目录
-ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
+# 安装：软链接到你的 agent 的 skill 目录
+# Claude Code:  ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
+# Codex:        ln -s /path/to/crisp-articulator ~/.agents/skills/crisp-articulator
+# Gemini CLI:   ln -s /path/to/crisp-articulator ~/.gemini/skills/crisp-articulator
+ln -s /path/to/crisp-articulator <your-agent-skill-dir>/crisp-articulator
 
 # 完整流水线：主题 → 写作 → 配图 → 排版 → 交付
 /articulate "写一篇关于 AI Agent 安全的技术博客" --platform wechat

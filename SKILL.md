@@ -1,9 +1,10 @@
 ---
 name: crisp-articulator
 description: >
-  Content creation pipeline orchestrator. Chains great-writer -> brilliant-visualizer ->
-  typeset into a complete write-illustrate-format-deliver flow. Loose coupling: depends
-  only on skill names and I/O contracts, not sub-skill internals.
+  Content creation pipeline orchestrator for any AI agent. Chains great-writer ->
+  brilliant-visualizer -> typeset into a complete write-illustrate-format-deliver flow.
+  Loose coupling: depends only on skill names and I/O contracts, not sub-skill internals.
+  Works with Claude Code, Codex, Gemini CLI, and any agent that supports skill loading.
 triggers:
   # Chinese
   - 一键发文
@@ -34,13 +35,23 @@ write (great-writer) -> illustrate (brilliant-visualizer) -> format (typeset) ->
 
 ## Step 0: Dependency Check
 
-Run this bash block before doing anything else:
+Before executing, verify that the required sub-skills are available. The skill directory varies by agent platform:
+
+| Agent | Typical skill directory |
+|-------|----------------------|
+| Claude Code | `~/.claude/skills/` |
+| Codex | `~/.agents/skills/` |
+| Gemini CLI | `~/.gemini/skills/` |
+| Other | Check agent documentation |
+
+Run this bash block (adjust `SKILL_DIR` to match your agent):
 
 ```bash
+SKILL_DIR="${SKILL_DIR:-$HOME/.claude/skills}"
 _MISSING=""
 _AVAILABLE=""
 for _skill in great-writer brilliant-visualizer typeset; do
-  if [ -f ~/.claude/skills/$_skill/SKILL.md ]; then
+  if [ -f "$SKILL_DIR/$_skill/SKILL.md" ]; then
     _AVAILABLE="$_AVAILABLE $_skill"
     echo "OK: $_skill"
   else
@@ -55,7 +66,7 @@ echo "MISSING:$_MISSING"
 **Interpret the results:**
 
 - If `MISSING` contains `typeset`: STOP. Tell the user:
-  "typeset skill is required but not installed. Install it at ~/.claude/skills/typeset/ before using /articulate."
+  "typeset skill is required but not installed. Install it to your agent's skill directory before using /articulate."
   Do not proceed.
 
 - If `MISSING` contains `great-writer` or `brilliant-visualizer`: warn the user which skills are missing and that the corresponding pipeline stages will be skipped. Offer to install them. Continue with available stages.
@@ -124,7 +135,7 @@ Also check: if the detected start stage requires a sub-skill that is missing (fr
 
 Execute stages in order from the detected entry point. Each stage follows the same pattern:
 1. Check if the sub-skill is available (from Step 0 results)
-2. Invoke the sub-skill via the Skill tool
+2. Invoke the sub-skill using your agent's skill invocation mechanism
 3. Collect the output artifact (file path)
 4. Run the stage gate (unless `AUTO_MODE` is true)
 5. Pass the artifact to the next stage
@@ -137,10 +148,10 @@ Execute stages in order from the detected entry point. Each stage follows the sa
 **Input:** Topic text from `TOPIC_OR_FILE` + writing type (inferred from topic or platform context)
 **Output:** Markdown file path
 
-**Invocation:** Use the Skill tool to invoke `great-writer`. Pass the topic text as the `args` parameter. Example:
+**Invocation:** Invoke the `great-writer` skill with the user's topic as argument. Pass the topic text directly. Example argument:
 
 ```
-Skill(skill="great-writer", args="写一篇关于 AI Agent 安全的技术博客")
+"写一篇关于 AI Agent 安全的技术博客"
 ```
 
 Let great-writer handle its own internal pipeline. Do not interfere with or reference its internal phases.
@@ -173,10 +184,10 @@ If user says "Y" or presses enter, continue to the next stage.
 
 **Mid-pipeline entry:** If the pipeline starts at this stage via `--from visualize` or auto-detection, set `MD_PATH` = `TOPIC_OR_FILE` (the user-provided file path).
 
-**Invocation:** Use the Skill tool to invoke `brilliant-visualizer` with the markdown file path:
+**Invocation:** Invoke the `brilliant-visualizer` skill with the markdown file path as argument:
 
 ```
-Skill(skill="brilliant-visualizer", args="{MD_PATH}")
+"{MD_PATH}"
 ```
 
 Let brilliant-visualizer handle its own analysis, plan confirmation, and generation. Do not interfere with its engine selection or internal workflow.
@@ -205,10 +216,10 @@ Same gate behavior as Write stage.
 
 **Mid-pipeline entry:** If the pipeline starts at this stage via `--from typeset` or auto-detection, set `ILLUSTRATED_MD_PATH` = `TOPIC_OR_FILE` (the user-provided file path). If `TOPIC_OR_FILE` is not a valid file path, show an error: "Typeset stage requires a Markdown file path as input."
 
-**Invocation:** Use the Skill tool to invoke `typeset` with the markdown path and platform/theme parameters:
+**Invocation:** Invoke the `typeset` skill with the markdown path and platform/theme parameters as argument:
 
 ```
-Skill(skill="typeset", args="{ILLUSTRATED_MD_PATH} --platform {PLATFORM} --theme {THEME}")
+"{ILLUSTRATED_MD_PATH} --platform {PLATFORM} --theme {THEME}"
 ```
 
 Let typeset handle its own rendering, platform-specific constraints, and theme application. Do not interfere with its internal logic.

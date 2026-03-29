@@ -1,5 +1,5 @@
 ---
-name: crisp-articulator
+name: articulate
 description: >
   Content creation pipeline orchestrator for any AI agent. Chains great-writer ->
   brilliant-visualizer -> typeset into a complete write-illustrate-format-deliver flow.

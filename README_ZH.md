@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-一条命令，从主题到发布。Crisp Articulator 串联写作、配图、排版、交付和多平台发布，编排独立的子 skill 完成全流程。支持 6 个发布平台：微信公众号、Medium、LinkedIn、小红书、抖音、X/Twitter。支持多平台同时发布。兼容 Claude Code、Codex、Gemini CLI 等所有支持 skill 加载的 agent。
+一条命令，从主题到发布。Crisp Articulator 串联写作、配图、排版、交付和发布，编排独立的子 skill 完成全流程。发布由 `/publish` skill（[superb-publisher](../superb-publisher/)）处理，支持的平台和配置详见该项目。兼容 Claude Code、Codex、Gemini CLI 等所有支持 skill 加载的 agent。
 
 ## 快速开始
 
@@ -10,14 +10,11 @@
 # 安装：软链接到你的 agent 的 skill 目录
 ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
 
-# 完整流水线：主题 → 写作 → 配图 → 排版 → 交付
+# 完整流水线：主题 -> 写作 -> 配图 -> 排版 -> 交付
 /articulate "写一篇关于 AI Agent 安全的技术博客" --platform wechat
 
-# 完整流水线 + 直接发布到微信公众号
-/articulate "AI Agent 安全" --platform wechat --publish --thumb cover.png
-
-# 发布到 Medium（草稿）
-/articulate "AI Agent Security" --platform medium --publish --tags "AI,Security" --status draft
+# 完整流水线 + 通过 /publish skill 发布
+/articulate "AI Agent 安全" --platform wechat --publish
 
 # 多平台同时发布
 /articulate "AI Agent 安全" --platform wechat,medium,x --publish
@@ -32,22 +29,16 @@ ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
 /articulate --auto "AI Agent 入门指南" --platform wechat --publish
 
 # 直接发布现有 HTML 文件
-/articulate article.html --from publish --title "我的文章"
-
-# 发布到小红书（图文笔记）
-/articulate article.html --from publish --platform xhs --tags "AI,科技"
-
-# 发布到 LinkedIn
-/articulate article.html --from publish --platform linkedin
+/articulate article.html --from publish --platform wechat
 ```
 
 ## 流水线
 
 ```
-主题 ──→ 写作 ──→ 配图 ──→ 排版 ──→ 交付 ──→ [发布]
-          │        │        │        │          │
-     great-    brilliant-  typeset  剪贴板   平台 CLI
-     writer    visualizer          + 预览    路由
+主题 --> 写作 --> 配图 --> 排版 --> 交付 --> [/publish]
+          |        |        |        |          |
+     great-    brilliant-  typeset  剪贴板   superb-
+     writer    visualizer          + 预览   publisher
 ```
 
 | 阶段 | 子 Skill / 工具 | 输入 | 输出 |
@@ -56,20 +47,7 @@ ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
 | 配图 | [brilliant-visualizer](https://github.com/d-wwei/brilliant-visualizer) | Markdown 文件 | 带图 Markdown |
 | 排版 | [typeset](https://github.com/d-wwei/excellent-typesetter) | Markdown + 平台参数 | 平台专用 HTML |
 | 交付 | (内置) | HTML 文件 | 剪贴板 + 浏览器预览 |
-| 发布 | 平台 CLI（见下表） | HTML + 元数据 | 已发布内容 |
-
-### 支持的发布平台
-
-| 平台 | CLI 工具 | 认证方式 | 内容格式 |
-|------|---------|---------|---------|
-| 微信公众号 | [wechat-cli](https://github.com/d-wwei/wechat-cli) | AppID + AppSecret | HTML（微信优化） |
-| Medium | [medium-cli](https://github.com/d-wwei/medium-cli) | Integration Token | HTML 或 Markdown |
-| LinkedIn | [linkedin-cli](https://github.com/d-wwei/linkedin-cli) | OAuth 2.0 | 纯文本 + 图片 |
-| 小红书 | xhs-cli (social-cli) | 扫码登录 | 文本 + 图片 |
-| 抖音 | douyin-cli (social-cli) | 扫码登录 | 视频 + 描述 |
-| X/Twitter | x-cli (social-cli) | 浏览器登录 | 短文本 + 图片 |
-
-多平台发布：`--platform wechat,medium,x` 依次发布到每个平台。
+| 发布 | [superb-publisher](../superb-publisher/)（/publish skill） | HTML + 元数据 | 已发布内容 |
 
 每个阶段之间有检查点，可以审阅、编辑或停止。`--auto` 跳过所有检查点——发布阶段除外，发布前必须确认（不可逆操作）。
 
@@ -98,11 +76,8 @@ ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
 | `--title` | 文章标题 | 自动从 `<h1>` 提取 |
 | `--author` | 作者名 | 空 |
 | `--digest` | 摘要（最长 120 字） | 自动从首段提取 |
-| `--thumb` | 封面图片路径（微信） | 无 |
-| `--tags` | 逗号分隔标签（Medium、小红书） | 无 |
-| `--status` | draft, public, unlisted（Medium） | draft |
-| `--video` | 视频文件路径（抖音，必填） | 无 |
-| `--cover` | 视频封面（抖音） | 无 |
+| `--thumb` | 封面图片路径 | 无 |
+| `--publish-args` | 传递给 /publish 的额外参数 | 无 |
 | `--check-deps` | *(标志)* 检查依赖后退出 | - |
 
 ## 依赖
@@ -114,17 +89,7 @@ ln -s /path/to/crisp-articulator ~/.claude/skills/crisp-articulator
 | [typeset](https://github.com/d-wwei/excellent-typesetter) | **是** | 无法运行 |
 | [great-writer](https://github.com/d-wwei/great-writer) | 否 | 跳过写作阶段 |
 | [brilliant-visualizer](https://github.com/d-wwei/brilliant-visualizer) | 否 | 跳过配图阶段 |
-
-### 平台 CLI（发布阶段，全部可选）
-
-| CLI | 平台 | 安装方式 |
-|-----|------|---------|
-| [wechat-cli](https://github.com/d-wwei/wechat-cli) | 微信公众号 | `~/.local/bin/wechat-cli` + `wechat-cli init` |
-| [medium-cli](https://github.com/d-wwei/medium-cli) | Medium | `~/.local/bin/medium-cli` + `medium-cli init` |
-| [linkedin-cli](https://github.com/d-wwei/linkedin-cli) | LinkedIn | `~/.local/bin/linkedin-cli` + `linkedin-cli init && linkedin-cli login` |
-| xhs-cli | 小红书 | `social-cli/bin/xhs-cli` + `xhs-cli login` |
-| douyin-cli | 抖音 | `social-cli/bin/douyin-cli` + `douyin-cli login` |
-| x-cli | X/Twitter | `social-cli/bin/x-cli` + `x-cli login` |
+| [superb-publisher](../superb-publisher/) | 否 | 发布阶段不可用（流水线在交付阶段结束） |
 
 ### 安装
 
@@ -135,18 +100,7 @@ ln -s /path/to/excellent-typesetter ~/.claude/skills/typeset
 # 可选子 skill
 ln -s /path/to/great-writer ~/.claude/skills/great-writer
 ln -s /path/to/brilliant-visualizer ~/.claude/skills/brilliant-visualizer
-
-# API 类 CLI 工具（用于 --publish）
-ln -s /path/to/wechat-cli ~/.local/bin/wechat-cli && wechat-cli init
-ln -s /path/to/medium-cli ~/.local/bin/medium-cli && medium-cli init
-ln -s /path/to/linkedin-cli ~/.local/bin/linkedin-cli && linkedin-cli init && linkedin-cli login
-
-# 浏览器自动化 CLI（social-cli 单仓）
-cd /path/to/social-cli && npm install && npm run build
-# 按需登录各平台：
-xhs-cli login
-douyin-cli login
-x-cli login
+ln -s /path/to/superb-publisher ~/.claude/skills/superb-publisher
 ```
 
 运行 `/articulate --check-deps` 检查安装状态。
@@ -155,22 +109,22 @@ x-cli login
 
 ### 松耦合
 
-编排器对每个子 skill 或工具只知道三样东西：
+编排器对每个子 skill 只知道三样东西：
 
-1. **名称** — skill 名称或 CLI 命令
-2. **输入** — 主题文本或文件路径
-3. **输出** — 文件路径或 ID
+1. **名称** -- skill 名称
+2. **输入** -- 主题文本或文件路径
+3. **输出** -- 文件路径或 ID
 
-仅此而已。不知道内部阶段、引擎配置、API 端点、主题逻辑。子 skill 通过 agent 的 Skill 工具调用，CLI 工具（wechat-cli）通过 Bash 调用。机制不同，契约相同。任何组件可以独立重构或替换。
+仅此而已。不知道内部阶段、引擎配置、API 端点、主题逻辑。所有子 skill 通过 agent 的 Skill 工具调用。任何组件可以独立重构或替换。
 
 ### 扩展插槽
 
 | 插槽 | 位置 | 状态 | 用途 |
 |------|------|------|------|
 | Pre-Write | 写作之前 | 规划中 | 选题、内容策略 |
-| Post-Deliver | 交付之后 | **已激活** | 多平台发布 |
+| Post-Deliver | 交付之后 | **已激活** | 多平台发布（通过 /publish skill） |
 
-发布阶段占据 Post-Deliver 插槽，已注册 6 个平台 CLI。每个平台有独立的内容适配规则、确认门控和错误处理。新平台只需实现遵循统一契约的 CLI（`{platform}-cli publish [--options]`）即可接入。
+发布阶段委托给 `/publish` skill（superb-publisher）。要添加新平台，扩展 superb-publisher 即可——编排器无需修改。
 
 ## 许可证
 

@@ -42,7 +42,7 @@ Brackets indicate optional/conditional stages. The Publish stage requires `--pub
 
 ## Step 0: Dependency Check + Auto-Install
 
-Before executing, verify that the required sub-skills are available. Missing skills are auto-installed from GitHub.
+Before executing, verify that all dependency skills are available. Missing skills are auto-installed from GitHub.
 
 The skill directory varies by agent platform:
 
@@ -53,79 +53,89 @@ The skill directory varies by agent platform:
 | Gemini CLI | `~/.gemini/skills/` |
 | Other | Check agent documentation |
 
-### Skill-to-repo mapping
+### Dependency Registry
 
-| Skill name | GitHub repo | Required? |
-|------------|------------|-----------|
-| `great-writer` | `d-wwei/great-writer` | Yes (Write stage) |
-| `brilliant-visualizer` | `d-wwei/brilliant-visualizer` | Optional (Visualize stage, skippable) |
-| `typeset` | `d-wwei/excellent-typesetter` | Yes (Typeset stage) |
-| `superb-publisher` | `d-wwei/superb-publisher` | Optional (Publish stage, only with --publish) |
+All dependencies are declared here. To add a new skill to the pipeline, add one row — the check engine handles the rest.
 
-### Check + auto-install
+<!-- DEPENDENCY_REGISTRY_START -->
+| Skill name | GitHub repo | Policy | Stage | Post-install |
+|------------|------------|--------|-------|-------------|
+| `great-writer` | `d-wwei/great-writer` | required | Write | — |
+| `typeset` | `d-wwei/excellent-typesetter` | required | Typeset | — |
+| `brilliant-visualizer` | `d-wwei/brilliant-visualizer` | optional | Visualize | — |
+| `superb-publisher` | `d-wwei/superb-publisher` | optional | Publish | `npm install` |
+<!-- DEPENDENCY_REGISTRY_END -->
 
-Run this bash block:
+**Policy values:**
+- `required` — pipeline cannot run without it. Auto-install; if still missing, STOP.
+- `optional` — skip the corresponding stage if missing. Auto-install; if still missing, warn and continue.
+
+**Post-install:** extra command to run after `git clone` (e.g., `npm install` for skills with native dependencies). Leave `—` for none.
+
+### Generic check engine
+
+The script below reads from the registry above. It does not hardcode any skill name — extending the pipeline means editing only the registry table.
 
 ```bash
 SKILL_DIR="${SKILL_DIR:-$HOME/.claude/skills}"
-_MISSING=""
-_AVAILABLE=""
-_INSTALLED=""
+_AVAILABLE="" _MISSING="" _INSTALLED=""
 
-# skill_name -> repo_name mapping
-_check_skill() {
-  _name="$1"
-  _repo="$2"
-  _required="$3"
+# Generic: check one skill, auto-install if missing
+_resolve() {
+  _name="$1"; _repo="$2"; _policy="$3"; _postinstall="$4"
   if [ -f "$SKILL_DIR/$_name/SKILL.md" ]; then
     _AVAILABLE="$_AVAILABLE $_name"
     echo "OK: $_name"
-  else
-    echo "MISSING: $_name — attempting auto-install..."
-    if command -v git >/dev/null 2>&1; then
-      git clone --depth 1 "https://github.com/$_repo.git" "$SKILL_DIR/$_name" 2>/dev/null
-      if [ -f "$SKILL_DIR/$_name/SKILL.md" ]; then
-        echo "INSTALLED: $_name (from $_repo)"
-        _INSTALLED="$_INSTALLED $_name"
-        _AVAILABLE="$_AVAILABLE $_name"
-        # Run npm install for skills that need it (browser-based CLIs)
-        if [ -f "$SKILL_DIR/$_name/package.json" ]; then
-          echo "  Running npm install for $_name..."
-          (cd "$SKILL_DIR/$_name" && npm install --silent 2>/dev/null)
-        fi
-      else
-        echo "FAILED: could not install $_name"
-        _MISSING="$_MISSING $_name"
-      fi
-    else
-      echo "FAILED: git not available, cannot auto-install"
-      _MISSING="$_MISSING $_name"
-    fi
+    return 0
   fi
+  echo "MISSING: $_name — auto-installing..."
+  if ! command -v git >/dev/null 2>&1; then
+    echo "FAILED: git not available"
+    _MISSING="$_MISSING $_name"
+    return 1
+  fi
+  git clone --depth 1 "https://github.com/$_repo.git" "$SKILL_DIR/$_name" 2>/dev/null
+  if [ ! -f "$SKILL_DIR/$_name/SKILL.md" ]; then
+    echo "FAILED: clone failed for $_name"
+    _MISSING="$_MISSING $_name"
+    return 1
+  fi
+  echo "INSTALLED: $_name (from $_repo)"
+  _INSTALLED="$_INSTALLED $_name"
+  _AVAILABLE="$_AVAILABLE $_name"
+  # Post-install hook
+  if [ "$_postinstall" != "-" ] && [ -n "$_postinstall" ]; then
+    echo "  Running post-install: $_postinstall"
+    (cd "$SKILL_DIR/$_name" && eval "$_postinstall" 2>/dev/null)
+  fi
+  return 0
 }
 
-# Required skills
-_check_skill "great-writer"          "d-wwei/great-writer"          "required"
-_check_skill "typeset"               "d-wwei/excellent-typesetter"  "required"
-
-# Optional skills
-_check_skill "brilliant-visualizer"  "d-wwei/brilliant-visualizer"  "optional"
-_check_skill "superb-publisher"      "d-wwei/superb-publisher"      "optional"
+# ── Read from registry (mirror the table above) ──
+_resolve "great-writer"          "d-wwei/great-writer"          "required" "-"
+_resolve "typeset"               "d-wwei/excellent-typesetter"  "required" "-"
+_resolve "brilliant-visualizer"  "d-wwei/brilliant-visualizer"  "optional" "-"
+_resolve "superb-publisher"      "d-wwei/superb-publisher"      "optional" "npm install --silent"
 
 echo ""
 echo "AVAILABLE:$_AVAILABLE"
 [ -n "$_INSTALLED" ] && echo "AUTO-INSTALLED:$_INSTALLED"
-[ -n "$_MISSING" ] && echo "MISSING:$_MISSING"
+[ -n "$_MISSING" ] && echo "STILL MISSING:$_MISSING"
 ```
 
 ### Interpret the results
 
-- **All available**: proceed normally.
-- **Auto-installed**: skills were cloned from GitHub. Proceed normally. The user may want to verify the install.
-- `typeset` missing (even after auto-install attempt): STOP. "typeset skill is required. Check network and retry, or manually clone: `git clone https://github.com/d-wwei/excellent-typesetter.git $SKILL_DIR/typeset`"
-- `great-writer` missing: STOP for Write stage. "great-writer is required for writing. Clone: `git clone https://github.com/d-wwei/great-writer.git $SKILL_DIR/great-writer`"
-- `brilliant-visualizer` missing: warn and skip Visualize stage. Continue.
-- `superb-publisher` missing + `--publish` requested: warn "superb-publisher not installed and auto-install failed. Publish stage skipped. Clone: `git clone https://github.com/d-wwei/superb-publisher.git $SKILL_DIR/superb-publisher`". End at Deliver.
+- **All available** (including auto-installed): proceed normally.
+- **Required skill still missing** after auto-install: STOP. Show: `"{skill} is required. Manual install: git clone https://github.com/{repo}.git $SKILL_DIR/{skill}"`.
+- **Optional skill still missing**: warn that the corresponding stage will be skipped. Continue with remaining stages.
+- To check dependencies without running the pipeline: use `--check-deps` flag.
+
+### Adding a new dependency
+
+1. Add a row to the **Dependency Registry** table above.
+2. Add the matching `_resolve` call in the bash block (same 4 values).
+3. Wire the new skill into a pipeline stage in Step 2.
+4. Done — no other changes needed.
 
 ---
 

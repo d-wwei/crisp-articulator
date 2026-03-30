@@ -40,9 +40,11 @@ Brackets indicate optional/conditional stages. The Publish stage requires `--pub
 
 ---
 
-## Step 0: Dependency Check
+## Step 0: Dependency Check + Auto-Install
 
-Before executing, verify that the required sub-skills are available. The skill directory varies by agent platform:
+Before executing, verify that the required sub-skills are available. Missing skills are auto-installed from GitHub.
+
+The skill directory varies by agent platform:
 
 | Agent | Typical skill directory |
 |-------|----------------------|
@@ -51,45 +53,79 @@ Before executing, verify that the required sub-skills are available. The skill d
 | Gemini CLI | `~/.gemini/skills/` |
 | Other | Check agent documentation |
 
-Run this bash block (adjust `SKILL_DIR` to match your agent):
+### Skill-to-repo mapping
+
+| Skill name | GitHub repo | Required? |
+|------------|------------|-----------|
+| `great-writer` | `d-wwei/great-writer` | Yes (Write stage) |
+| `brilliant-visualizer` | `d-wwei/brilliant-visualizer` | Optional (Visualize stage, skippable) |
+| `typeset` | `d-wwei/excellent-typesetter` | Yes (Typeset stage) |
+| `superb-publisher` | `d-wwei/superb-publisher` | Optional (Publish stage, only with --publish) |
+
+### Check + auto-install
+
+Run this bash block:
 
 ```bash
 SKILL_DIR="${SKILL_DIR:-$HOME/.claude/skills}"
 _MISSING=""
 _AVAILABLE=""
-for _skill in great-writer brilliant-visualizer typeset; do
-  if [ -f "$SKILL_DIR/$_skill/SKILL.md" ]; then
-    _AVAILABLE="$_AVAILABLE $_skill"
-    echo "OK: $_skill"
+_INSTALLED=""
+
+# skill_name -> repo_name mapping
+_check_skill() {
+  _name="$1"
+  _repo="$2"
+  _required="$3"
+  if [ -f "$SKILL_DIR/$_name/SKILL.md" ]; then
+    _AVAILABLE="$_AVAILABLE $_name"
+    echo "OK: $_name"
   else
-    _MISSING="$_MISSING $_skill"
-    echo "MISSING: $_skill"
+    echo "MISSING: $_name — attempting auto-install..."
+    if command -v git >/dev/null 2>&1; then
+      git clone --depth 1 "https://github.com/$_repo.git" "$SKILL_DIR/$_name" 2>/dev/null
+      if [ -f "$SKILL_DIR/$_name/SKILL.md" ]; then
+        echo "INSTALLED: $_name (from $_repo)"
+        _INSTALLED="$_INSTALLED $_name"
+        _AVAILABLE="$_AVAILABLE $_name"
+        # Run npm install for skills that need it (browser-based CLIs)
+        if [ -f "$SKILL_DIR/$_name/package.json" ]; then
+          echo "  Running npm install for $_name..."
+          (cd "$SKILL_DIR/$_name" && npm install --silent 2>/dev/null)
+        fi
+      else
+        echo "FAILED: could not install $_name"
+        _MISSING="$_MISSING $_name"
+      fi
+    else
+      echo "FAILED: git not available, cannot auto-install"
+      _MISSING="$_MISSING $_name"
+    fi
   fi
-done
+}
 
-# Check for publish skill (optional, only needed with --publish)
-if [ -f "$SKILL_DIR/superb-publisher/SKILL.md" ]; then
-  _AVAILABLE="$_AVAILABLE superb-publisher"
-  echo "OK: superb-publisher (publish skill)"
-else
-  echo "INFO: superb-publisher not installed (optional — needed for --publish)"
-fi
+# Required skills
+_check_skill "great-writer"          "d-wwei/great-writer"          "required"
+_check_skill "typeset"               "d-wwei/excellent-typesetter"  "required"
 
+# Optional skills
+_check_skill "brilliant-visualizer"  "d-wwei/brilliant-visualizer"  "optional"
+_check_skill "superb-publisher"      "d-wwei/superb-publisher"      "optional"
+
+echo ""
 echo "AVAILABLE:$_AVAILABLE"
-echo "MISSING:$_MISSING"
+[ -n "$_INSTALLED" ] && echo "AUTO-INSTALLED:$_INSTALLED"
+[ -n "$_MISSING" ] && echo "MISSING:$_MISSING"
 ```
 
-**Interpret the results:**
+### Interpret the results
 
-- If `MISSING` contains `typeset`: STOP. Tell the user:
-  "typeset skill is required but not installed. Install it to your agent's skill directory before using /articulate."
-  Do not proceed.
-
-- If `MISSING` contains `great-writer` or `brilliant-visualizer`: warn the user which skills are missing and that the corresponding pipeline stages will be skipped. Offer to install them. Continue with available stages.
-
-- If all three are present: proceed normally.
-
-- If `--publish` is requested but `superb-publisher` is not installed: warn: "superb-publisher skill not installed. Install it to use --publish. See: https://github.com/d-wwei/superb-publisher". End at Deliver.
+- **All available**: proceed normally.
+- **Auto-installed**: skills were cloned from GitHub. Proceed normally. The user may want to verify the install.
+- `typeset` missing (even after auto-install attempt): STOP. "typeset skill is required. Check network and retry, or manually clone: `git clone https://github.com/d-wwei/excellent-typesetter.git $SKILL_DIR/typeset`"
+- `great-writer` missing: STOP for Write stage. "great-writer is required for writing. Clone: `git clone https://github.com/d-wwei/great-writer.git $SKILL_DIR/great-writer`"
+- `brilliant-visualizer` missing: warn and skip Visualize stage. Continue.
+- `superb-publisher` missing + `--publish` requested: warn "superb-publisher not installed and auto-install failed. Publish stage skipped. Clone: `git clone https://github.com/d-wwei/superb-publisher.git $SKILL_DIR/superb-publisher`". End at Deliver.
 
 ---
 
